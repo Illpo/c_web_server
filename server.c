@@ -77,13 +77,21 @@ int main() {
                     if (strcmp(method, "GET") == 0) {
 
                         if(strcmp(path, "/") == 0) {
-                             handleGETRequest(clients[i], "index.html");
+                            handleGETRequest(clients[i], "index.html");
+                            closesocket(clients[i]);
+                            clients[i] = INVALID_SOCKET;
+                            free(method);
+                            free(path);
                         } else {
                             path++;
                           
                             if(strncmp(path, "static", strlen("static")) == 0 || strcmp(path, "favicon.ico") == 0) {
 
                                 handleGETRequest_forStatic(clients[i], path);
+                                closesocket(clients[i]);
+                                clients[i] = INVALID_SOCKET;
+                                free(method);
+                                free(path);
 
                             } else {
                                 const char* notImplementedResponse = "HTTP/1.1 505 No\r\n";
@@ -91,6 +99,8 @@ int main() {
                                 printf("%s\n", notImplementedResponse);
                                 closesocket(clients[i]);
                                 clients[i] = INVALID_SOCKET;
+                                free(method);
+                                free(path);
                             }
                         }
 
@@ -106,20 +116,26 @@ int main() {
 
                             printf("Data: %s\n", last);
                             redirect(clients[i]);
+                            free(method);
+                            free(path);
 
                         } else {
                             // Return 404 for unknown POST paths
                             const char* notFoundResponse = "HTTP/1.1 404 Not Found\r\n\r\n";
                             send(clients[i], notFoundResponse, strlen(notFoundResponse), 0);
+                            closesocket(clients[i]);
+                            clients[i] = INVALID_SOCKET;
+                            free(method);
+                            free(path);
                         }                        
                     } else {
                         const char* notImplementedResponse = "HTTP/1.1 501 Not Implemented\r\n\r\n";
                         send(clients[i], notImplementedResponse, strlen(notImplementedResponse), 0);
                         closesocket(clients[i]);
                         clients[i] = INVALID_SOCKET;
+                        free(method);
+                        free(path);
                     }
-                    free(method);
-                    free(path);
                 } else {
                     printf("Recv failed.\n");
                     closesocket(clients[i]);
