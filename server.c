@@ -3,16 +3,33 @@
 #include <stdlib.h>
 #include <string.h>
 #include <windows.h>
+#include <wchar.h>
+#include <fcntl.h>
+#include <io.h>
 
 #include "server_start.c"
 #include "files.c"
 
 #define MAX_CLIENTS 100
-#define MAX_BUFFER_SIZE 2024
-
+#define MAX_BUFFER_SIZE 4048
+#define _O_U16TEXT 0x20000
+#define _O_U8TEXT 0x00040000
 
 int main() {
-
+    HANDLE hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
+    int result = _setmode( _fileno( stdout ), _O_U8TEXT );
+    if( result == -1 ) {
+      perror( "Cannot set mode" );
+    }
+    wprintf(L"┌──Server running...\n└─» HELLO ");
+    SetConsoleTextAttribute(hConsole, FOREGROUND_GREEN);
+    wprintf(L"Mr. ILLPO \n");
+    SetConsoleTextAttribute(hConsole, FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE);
+    wprintf(L" ┌───┐  ┌───┐\n | ▀▄▀  ▀▄▀ |\n └───┘  └───┘\n");
+    if (_setmode(_fileno( stdout ), result) == -1) {
+        perror("_setmode");
+        return 1;
+    }
     SOCKET serverSocket = ServerStart();
 
     fd_set readfds;
@@ -29,9 +46,9 @@ int main() {
         for (int i = 0; i < MAX_CLIENTS; i++) {
             if (clients[i] != INVALID_SOCKET) {
                 FD_SET(clients[i], &readfds);
-            }
-            if (clients[MAX_CLIENTS] > max_sd) {
-                max_sd = clients[MAX_CLIENTS];
+                if (clients[i] > max_sd) { 
+                    max_sd = clients[i]; 
+                }
             }
         }
 
@@ -64,15 +81,23 @@ int main() {
                 memset(buff, 0, sizeof(buff));
                 int bytesRead = recv(clients[i], buff, sizeof(buff), 0);
                 if (bytesRead > 0) {
+                    char *secret_word = "/helloworld";
+                    char *method = NULL;
+                    char *path = NULL;
 
-                    char *method, *path;
-
-                    method = (char *)malloc(4 * sizeof(char));
-                    path = (char *)malloc(11 * sizeof(char));
-
-                    sscanf(buff, "%s %s", method, path);
-
-                    printf("%s\n\n", buff);
+                    char *tokens[30] = {NULL};
+            
+                    printf("%s\n", buff);
+                    char *token = strtok(buff, " ");
+                    int c=0;
+                    while(token != NULL && c < 30) {
+                        tokens[c++] = token;
+                        token = strtok(NULL, " ");
+                    }
+                    if(tokens[0] != NULL && tokens[1] != NULL) {
+                        method = tokens[0];
+                        path = tokens[1];
+                    }
 
                     if (strcmp(method, "GET") == 0) {
 
@@ -80,8 +105,15 @@ int main() {
                             handleGETRequest(clients[i], "index.html");
                             closesocket(clients[i]);
                             clients[i] = INVALID_SOCKET;
-                            free(method);
-                            free(path);
+                        } else if(strcmp(path, "/no") ==0) {
+                            handleGETRequest(clients[i], "no.html");
+                            closesocket(clients[i]);
+                            clients[i] = INVALID_SOCKET;
+                        } else if(strcmp(path, secret_word) ==0) {
+                            closesocket(clients[i]);
+                            clients[i] = INVALID_SOCKET;
+                            cleanupAndExit(serverSocket);
+                            return EXIT_SUCCESS;
                         } else {
                             path++;
                           
@@ -90,8 +122,7 @@ int main() {
                                 handleGETRequest_forStatic(clients[i], path);
                                 closesocket(clients[i]);
                                 clients[i] = INVALID_SOCKET;
-                                free(method);
-                                free(path);
+                                method = path = NULL;
 
                             } else {
                                 const char* notImplementedResponse = "HTTP/1.1 505 No\r\n";
@@ -99,42 +130,27 @@ int main() {
                                 printf("%s\n", notImplementedResponse);
                                 closesocket(clients[i]);
                                 clients[i] = INVALID_SOCKET;
-                                free(method);
-                                free(path);
                             }
                         }
 
                     } else if (strcmp(method, "POST") == 0) {
 
                         if(strcmp(path, "/register") == 0) {
-                            char *tok = strtok(buff, "\n");
-                            char *last = NULL;
-                            while(tok != NULL) {
-                                last = tok;
-                                tok = strtok(NULL, "\n");
-                            }
 
-                            printf("Data: %s\n", last);
                             redirect(clients[i]);
-                            free(method);
-                            free(path);
 
                         } else {
-                            // Return 404 for unknown POST paths
+                            
                             const char* notFoundResponse = "HTTP/1.1 404 Not Found\r\n\r\n";
                             send(clients[i], notFoundResponse, strlen(notFoundResponse), 0);
                             closesocket(clients[i]);
                             clients[i] = INVALID_SOCKET;
-                            free(method);
-                            free(path);
                         }                        
                     } else {
                         const char* notImplementedResponse = "HTTP/1.1 501 Not Implemented\r\n\r\n";
                         send(clients[i], notImplementedResponse, strlen(notImplementedResponse), 0);
                         closesocket(clients[i]);
                         clients[i] = INVALID_SOCKET;
-                        free(method);
-                        free(path);
                     }
                 } else {
                     printf("Recv failed.\n");
