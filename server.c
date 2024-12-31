@@ -1,40 +1,29 @@
 #include <winsock2.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdint.h>
 #include <string.h>
-#include <windows.h>
-#include <wchar.h>
-#include <fcntl.h>
-#include <io.h>
+
 
 #include "server_start.c"
 #include "files.c"
+#include "terminal.c"
 
 #define MAX_CLIENTS 100
-#define MAX_BUFFER_SIZE 4048
-#define _O_U16TEXT 0x20000
-#define _O_U8TEXT 0x00040000
+#define MAX_BUFFER_SIZE 4096
+//#define _O_U16TEXT 0x20000
+//#define _O_U8TEXT 0x00040000
 
 int main() {
-    HANDLE hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
-    int result = _setmode( _fileno( stdout ), _O_U8TEXT );
-    if( result == -1 ) {
-      perror( "Cannot set mode" );
-    }
-    wprintf(L"┌──Server running...\n└─» HELLO ");
-    SetConsoleTextAttribute(hConsole, FOREGROUND_GREEN);
-    wprintf(L"Mr. ILLPO \n");
-    SetConsoleTextAttribute(hConsole, FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE);
-    wprintf(L" ┌───┐  ┌───┐\n | ▀▄▀  ▀▄▀ |\n └───┘  └───┘\n");
-    if (_setmode(_fileno( stdout ), result) == -1) {
-        perror("_setmode");
-        return 1;
-    }
+    if(!t_start()) {
+        printf("error with terminal\n");
+        return 0;
+    } 
     SOCKET serverSocket = ServerStart();
 
     fd_set readfds;
     SOCKET clients[MAX_CLIENTS];
-    for (int i = 0; i < MAX_CLIENTS; i++) {
+    for (uint8_t i = 0; i < MAX_CLIENTS; i++) {
         clients[i] = INVALID_SOCKET;
     }
 
@@ -43,7 +32,7 @@ int main() {
         FD_SET(serverSocket, &readfds);
         int max_sd = serverSocket;
 
-        for (int i = 0; i < MAX_CLIENTS; i++) {
+        for (uint8_t i = 0; i < MAX_CLIENTS; i++) {
             if (clients[i] != INVALID_SOCKET) {
                 FD_SET(clients[i], &readfds);
                 if (clients[i] > max_sd) { 
@@ -52,7 +41,7 @@ int main() {
             }
         }
 
-        if (select(serverSocket + 1, &readfds, NULL, NULL, NULL) == SOCKET_ERROR) {
+        if (select(max_sd + 1, &readfds, NULL, NULL, NULL) == SOCKET_ERROR) {
             printf("Select failed.\n");
             cleanupAndExit(serverSocket);
         }
@@ -65,8 +54,10 @@ int main() {
                 printf("Accept failed.\n");
                 continue;
             } else {
-                printf("New connection accepted.\nIP: %s\n", inet_ntoa(clientAddr.sin_addr));
-                for (int i = 0; i < MAX_CLIENTS; i++) {
+                char ipStr[16];
+                printf("New connection accepted.\nIP: %s..:\n", inet_ntop(AF_INET, &(clientAddr.sin_addr), ipStr, 16));
+                memset(ipStr, 0, sizeof(ipStr));
+                for (uint8_t i = 0; i < MAX_CLIENTS; i++) {
                     if (clients[i] == INVALID_SOCKET) {
                         clients[i] = clientSocket;
                         break;
@@ -75,64 +66,57 @@ int main() {
             }
         }
 
-        for (int i = 0; i < MAX_CLIENTS; i++) {
+        for (uint8_t i = 0; i < MAX_CLIENTS; i++) {
             if (clients[i] != INVALID_SOCKET && FD_ISSET(clients[i], &readfds)) {
-                char buff[MAX_BUFFER_SIZE];
-                memset(buff, 0, sizeof(buff));
-                int bytesRead = recv(clients[i], buff, sizeof(buff), 0);
+                char *buff = (char*)malloc(MAX_BUFFER_SIZE);
+                //memset(buff, 0, sizeof(buff));
+                uint16_t bytesRead = recv(clients[i], buff, MAX_BUFFER_SIZE-1, 0);
                 if (bytesRead > 0) {
-                    char *secret_word = "/helloworld";
-                    char *method = NULL;
-                    char *path = NULL;
 
-                    char *tokens[30] = {NULL};
-            
+                    buff[bytesRead] = '\0';
+                    char *secret_word = "/helloworld";
                     printf("%s\n", buff);
-                    char *token = strtok(buff, " ");
-                    int c=0;
+            
+                    char *tokens[30] = {NULL};
+                    char *context = NULL;
+                    char *token = strtok_s(buff, " ", &context);
+
+                    uint8_t c=0;
                     while(token != NULL && c < 30) {
                         tokens[c++] = token;
-                        token = strtok(NULL, " ");
+                        token = strtok_s(NULL, " ", &context);
                     }
-                    if(tokens[0] != NULL && tokens[1] != NULL) {
-                        method = tokens[0];
-                        path = tokens[1];
-                    }
+                    
+                    char *method = tokens[0] ? tokens[0] : NULL;
+                    char *path = tokens[1] ? tokens[1] : NULL;
 
                     if (strcmp(method, "GET") == 0) {
 
-                        if(strcmp(path, "/") == 0) {
-                            handleGETRequest(clients[i], "index.html");
-                            closesocket(clients[i]);
-                            clients[i] = INVALID_SOCKET;
-                        } else if(strcmp(path, "/no") ==0) {
-                            handleGETRequest(clients[i], "no.html");
-                            closesocket(clients[i]);
-                            clients[i] = INVALID_SOCKET;
-                        } else if(strcmp(path, secret_word) ==0) {
+                        if(strcmp(path, "/") == 0) {            handleGETRequest(clients[i], "index.html"); }
+                        else if(strcmp(path, "/no") ==0) {      handleGETRequest(clients[i], "no.html");    }
+                        else if(strcmp(path, "/no2") ==0) {     handleGETRequest(clients[i], "no2.html");   }
+                        else if(strcmp(path, "/login") ==0) {   handleGETRequest(clients[i], "login.html"); }
+                        else if(strcmp(path, secret_word) ==0) {
                             closesocket(clients[i]);
                             clients[i] = INVALID_SOCKET;
                             cleanupAndExit(serverSocket);
+                            free(buff);
+                            buff = NULL;
                             return EXIT_SUCCESS;
                         } else {
                             path++;
-                          
                             if(strncmp(path, "static", strlen("static")) == 0 || strcmp(path, "favicon.ico") == 0) {
 
                                 handleGETRequest_forStatic(clients[i], path);
-                                closesocket(clients[i]);
-                                clients[i] = INVALID_SOCKET;
-                                method = path = NULL;
-
+                                
                             } else {
                                 const char* notImplementedResponse = "HTTP/1.1 505 No\r\n";
                                 send(clients[i], notImplementedResponse, strlen(notImplementedResponse), 0);
                                 printf("%s\n", notImplementedResponse);
-                                closesocket(clients[i]);
-                                clients[i] = INVALID_SOCKET;
+  
                             }
                         }
-
+                        
                     } else if (strcmp(method, "POST") == 0) {
 
                         if(strcmp(path, "/register") == 0) {
@@ -143,19 +127,28 @@ int main() {
                             
                             const char* notFoundResponse = "HTTP/1.1 404 Not Found\r\n\r\n";
                             send(clients[i], notFoundResponse, strlen(notFoundResponse), 0);
-                            closesocket(clients[i]);
-                            clients[i] = INVALID_SOCKET;
-                        }                        
+
+                        } 
+
                     } else {
                         const char* notImplementedResponse = "HTTP/1.1 501 Not Implemented\r\n\r\n";
                         send(clients[i], notImplementedResponse, strlen(notImplementedResponse), 0);
-                        closesocket(clients[i]);
-                        clients[i] = INVALID_SOCKET;
+
                     }
+
+                    closesocket(clients[i]);
+                    clients[i] = INVALID_SOCKET;
+                    free(buff);
+                    buff = NULL;
+                    
                 } else {
                     printf("Recv failed.\n");
                     closesocket(clients[i]);
                     clients[i] = INVALID_SOCKET;
+
+                    free(buff);
+                    buff = NULL;
+
                 }
             }
         }
